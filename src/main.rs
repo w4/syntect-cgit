@@ -1,8 +1,7 @@
-use std::io::Read;
-use std::path::Path;
-use syntect::highlighting::ThemeSet;
-use syntect::html::highlighted_html_for_string;
-use syntect::parsing::SyntaxSet;
+use bat::assets::HighlightingAssets;
+use once_cell::sync::Lazy;
+use std::{io::Read, path::Path};
+use syntect::{html::highlighted_html_for_string, parsing::SyntaxSet};
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -21,34 +20,37 @@ fn main() -> std::io::Result<()> {
 }
 
 fn highlight(content: &str, filename: &str) {
-    let ss = SyntaxSet::load_defaults_newlines();
-    let ts = ThemeSet::load_defaults();
+    let bat_assets = HighlightingAssets::from_binary();
+    let ss = bat_assets
+        .get_syntax_set()
+        .unwrap_or_else(|_| syntact_syntax_set());
+    let theme = bat_assets.get_theme("GitHub");
 
     let syntax = {
         let path = Path::new(filename);
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         let extension = path.extension().and_then(|x| x.to_str()).unwrap_or("");
-        let ext_syntax = ss
+        let path_syntax = ss
             .find_syntax_by_extension(file_name)
             .or_else(|| ss.find_syntax_by_extension(extension));
 
-        let line_syntax = if ext_syntax.is_none() {
+        path_syntax.or_else(|| {
             content
                 .lines()
                 .next()
-                .map(|v| ss.find_syntax_by_first_line(v))
-                .flatten()
-        } else {
-            None
-        };
-
-        ext_syntax.or(line_syntax)
+                .and_then(|v| ss.find_syntax_by_first_line(v))
+        })
     };
 
     let syntax = syntax.unwrap_or_else(|| ss.find_syntax_plain_text());
 
     println!(
         "{}",
-        highlighted_html_for_string(content, &ss, syntax, &ts.themes["InspiredGitHub"])
+        highlighted_html_for_string(content, &ss, syntax, theme)
     );
+}
+
+fn syntact_syntax_set() -> &'static SyntaxSet {
+    static SS: Lazy<SyntaxSet> = Lazy::new(|| SyntaxSet::load_defaults_newlines());
+    &*SS
 }
